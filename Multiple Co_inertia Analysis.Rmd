@@ -1,0 +1,105 @@
+---
+title: "Multiple Co-inertia Analysis"
+author: "George Melrose"
+date: "12/02/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Multiple Co-inertia Analysis of multi-omics Data using omicade4
+
+This script is based off of an excellent tutorial of *omicade4* from Chen Meng and Amin Gholami - https://www.bioconductor.org/packages/release/bioc/vignettes/omicade4/inst/doc/omicade4.pdf
+
+Co-inertia analysis (CIA) is a term that describes how to examine covariant gene expression patterns between microarray datasets from two different platforms. The *ade4* and *made4* packages contain multivariate statistical methods including those to analyse one data table, two data tables, and even multi-table analysis. 
+
+Omicade4 has been made as an extension to ade4 and made4 to allow for the input and analysis of more than 2 -omics datasets.Omicade4 can be applied to several sets of variables (genes, transcripts,proteins) measured on the same set of individuals (cell lines, patients).
+
+The Omicade4 package contains example data from different microarray platforms.
+```{r}
+library(omicade4)
+data("NCI60_4arrays")
+```
+
+NCI60_4arrays is a list containing microarray data of NCI-60 cell lines with only few hundreds of genes randomly selected in each platform to keep the size of the Bioconductor package small. NCI-60 is a cancer cell line panel of a group of 60 human cancer cell lines used by the National Cancer Institute, for the screening of compounds to detect potential anticancer activity. 
+
+### Data Overview 
+
+Multiple CIA (MCIA) links the individuals (samples in column) in different datasets and so the columns will be linked between the multiple datasets. Therefore, the order of samples (the columns) in all datasets had to be made the same before performing MCIA.
+
+The no. variables (genes in this case) doesn't need to be the same. The dimension of each dataset in the list can be checked like this - 
+
+```{r}
+sapply(NCI60_4arrays, dim)
+
+typeof(NCI60_4arrays)
+
+#Check if samples are ordered correctly#
+
+all(apply((x <- sapply(NCI60_4arrays, colnames))[,-1],2, function(y) + identical(y, x[,1])))
+```
+Before doing MCIA, hierarchical clustering can be used to observe the similarity of cell lines. This will be compared to the MCIA later.
+
+```{r, echo=FALSE}
+layout(matrix(1:4, 1, 4))
+par(mar=c(2, 1, 0.1, 6))
+for (df in NCI60_4arrays) {
+  d <- dist(t(df))
+  hcl <- hclust(d)
+  dend <- as.dendrogram(hcl)
+  plot(dend, horiz=TRUE)
+}
+```
+
+### Data exploration with MCIA analysis
+
+The *mcia()* function is used to perform MCIA.
+```{r}
+analysis <- mcia(NCI60_4arrays, cia.nf = 10)
+class(analysis)
+```
+To visualise the mcia class one can use plot however as there are 9 cancer types, it would be best to distinguish the cell lines by their original cancer type.
+
+This can be done through the defining of a phenotype factor. The following code creates a vector to indicate cell line groups - 
+```{r}
+cancer_type <- colnames(NCI60_4arrays$agilent)
+cancer_type <- sapply(strsplit(cancer_type, split = "\\."), function(x) x[1])
+cancer_type
+```
+Now one can plot the MCIA results with cancer types defined - 
+```{r, echo=FALSE}
+plot(analysis, axes=1:2, phenovec=cancer_type, sample.lab=FALSE, df.color=1:4)
+```
+In the 4-panel figure above, the top left panel is the sample space where each cell line is projected. Different shapes represent different microarray platforms used.
+
+Cell lines of the same type are linked by edges. The short the edge, the better the correlation of samples between different platforms. In the top left panel, one can observe a fairly high correlation of all microarray datasets.
+
+The top right panel is the variable (gene) space - genes from different platforms, distinguished by colours and shapes, projected on this space. A gene that is highly expressed in a cell line is located on the direction of this cell line. The farther away towards to outer margin, the stronger the association (a bit like RGCCA). 
+
+Bearing the above in mind, it can be seen that melanoma cell lines tend to be on the positive side of the horizontal axis in the first panel, the corresponding melanoma genes in the variable space are on the same direction. 
+
+The following code is used to selected melanoma line associated genes according to their gene coordinates - 
+
+```{r}
+library(omicade4)
+
+melan_gene <- selectVar(analysis, a1.lim=c(2,Inf), a2.lim=c(-Inf,Inf))
+
+melan_gene
+```
+
+In the *melan_gene* dataframe the first column lists the genes and the subsequent columns list the genes IDed on different platforms. The last column is a statistic of the total no. platforms that haved IDed the corresponding gene. 
+
+The bottom left panel in MCIA results plot shows the eigenvalue for each eigenvector.
+
+**Eigenvalue** - The scale of the stretch of an eigenvector, often denoted by lambda. An eigenvalue is the total amount of variance in the variables in the dataset explained by the common factor.
+
+**Eigenvector** - A linear transformation of a vector that changes at most by the eigenvalue. Eigen is German for 'typical'. 
+
+In the bottom left panel, the cyan bars represent the eigenvectors and the dots linking the lines indicate the proportion of eigenvector variance. 
+
+Finally the bottom right panel shows the pseudo-eigenvalues space  of all datasets, indicating how much variance of an eigenvalue is contributed to by each dataset. In the panel HGU 95 has a high pseudoeig 2/y-axis value. Hence, this dataset contributes the most variance on this axis of the 4 datasets. On the other hand, the HGU 133 plus 2.0 data contributes highly to the second axis. 
+
+
